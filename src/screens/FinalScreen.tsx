@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useApp } from '../components/ctx'
 import { AwardBadge, Button, Card, Modal, Notice, kst } from '../components/ui'
-import { fmt2, verifyResults, type TieGroup } from '../lib/calc'
+import { fmt2, fmtScore, verifyResults, type TieGroup } from '../lib/calc'
 import { logSystem, nowIso } from '../lib/store'
 import type { FinalResultRow } from '../lib/types'
 
@@ -70,7 +70,9 @@ export default function FinalScreen() {
                     <td className="num border border-gray-300 px-2 text-center text-base font-bold text-navy-800">{fmt2(r.agg.avg)}</td>
                     <td className="border border-gray-300 px-2 text-center"><AwardBadge award={r.award} provisional={!results.allComplete} /></td>
                     <td className="border border-gray-300 px-2 text-xs text-gray-600">
-                      {r.decided ? `동점(공동 ${r.rank}위) → 위원회 결정` : r.needsDecision ? '수상 경계 동점 — 결정 필요' : r.tieSize > 1 ? '동점(등급 영향 없음)' : ''}
+                      {r.decided ? `동점 기준으로도 같음(공동 ${r.rank}위) → 위원회 결정` : r.needsDecision ? '동점 기준으로도 같음 — 위원회 결정 필요' : r.tieSize > 1 ? '공동순위(등급 영향 없음)' : ''}
+                      {r.brokenBy && r.avgTieSize > 1 && <div>평균 동점({r.avgTieSize}건) → {r.brokenBy}로 결정</div>}
+                      {r.avgTieSize > 1 && r.tieBreak && <div className="num text-gray-500">실시가능성 {fmtScore(r.tieBreak[0])} · 효율성 {fmtScore(r.tieBreak[1])}</div>}
                     </td>
                   </tr>
                 )
@@ -78,7 +80,7 @@ export default function FinalScreen() {
             </tbody>
           </table>
         </div>
-        <p className="mt-2 text-xs text-gray-500">선정 기준: 1위 최우수(1명), 2~3위 우수(2명), 4~6위 장려(3명), 7위 이하 미선정. 동점 우선순위 기준은 첨부 문서에 없어 임의로 정하지 않고 위원회 결정을 기록합니다.</p>
+        <p className="mt-2 text-xs text-gray-500">선정 기준: 1위 최우수(1명), 2~3위 우수(2명), 4~6위 장려(3명), 7위 이하 미선정. 최종 평균이 같으면 ① 실시가능성 합계(위원 6명 소계 합) ② 효율성(경제성) 합계가 높은 순으로 순위를 정하고, 그래도 같으면 공동순위로 두고 수상 등급 경계에 걸치면 위원회가 결정합니다.</p>
       </Card>
 
       {confirmOpen && <FinalizeModal onClose={() => setConfirmOpen(false)} onConfirm={(by) => {
@@ -129,6 +131,11 @@ function TieDecisionEditor({ group, locked }: { group: TieGroup; locked: boolean
     <div className={`rounded border p-3 ${group.decision ? 'border-emerald-300 bg-emerald-50/50' : 'border-amber-300 bg-amber-50/50'}`}>
       <div className="mb-2 text-sm font-semibold">
         공동 {group.start}위 · 평균 {fmt2(group.avg)}점 · 제안 {group.nos.join(', ')} — 정렬 {group.start}~{group.end}위가 수상 등급 경계에 걸침
+        <div className="mt-0.5 text-xs font-normal text-gray-600">
+          {group.tieBreak
+            ? `실시가능성 합계(${fmtScore(group.tieBreak[0])})와 효율성(경제성) 합계(${fmtScore(group.tieBreak[1])})까지 같아 기준으로 가릴 수 없습니다.`
+            : '총점 직접입력(세부점수 없음) 평가가 있어 실시가능성·효율성 합계 기준을 적용할 수 없습니다.'}
+        </div>
         {group.decision && <span className="ml-2 text-emerald-700">위원회 결정 기록됨 ({kst(group.decision.at)})</span>}
       </div>
       <ol className="space-y-1">

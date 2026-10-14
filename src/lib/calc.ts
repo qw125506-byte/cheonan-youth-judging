@@ -171,15 +171,28 @@ export function tieKey(trimmedUnits: number, nos: number[]): string {
   return `${trimmedUnits}|${[...nos].sort((a, b) => a - b).join(',')}`
 }
 
+/**
+ * 최종 평균 동점 시 순위 결정 기준(순서대로 적용).
+ * 각 심사항목에 대해 위원 6명의 소계를 모두 더한 값이 높은 제안이 앞선다.
+ */
+export const TIEBREAK_CATEGORIES = ['실시가능성', '효율성(경제성)'] as const
+
 export interface RankRow {
   no: number
   title: string
   agg: ProposalAgg
-  /** 공동순위 포함 순위(1,2,2,4…). 미완성이면 null */
+  /** 순위(동점 기준 적용 후, 그래도 같으면 공동순위 1,2,2,4…). 미완성이면 null */
   rank: number | null
   /** 위원회 결정까지 반영한 정렬 위치(1부터). 미완성이면 null */
   position: number | null
+  /** 동점 기준을 적용하고도 같은 제안 수(공동순위 크기) */
   tieSize: number
+  /** 최종 평균이 같은 제안 수 */
+  avgTieSize: number
+  /** 동점 기준 항목별 6명 합계(TIEBREAK_CATEGORIES 순). 세부점수가 없는 평가가 있으면 null */
+  tieBreak: number[] | null
+  /** 평균 동점을 가른 기준 설명(예: '실시가능성 합계'). 해당 없으면 null */
+  brokenBy: string | null
   /** 수상 등급 경계에 걸친 동점으로 위원회 결정이 필요한데 아직 없음 */
   needsDecision: boolean
   /** 위원회 동점 결정이 적용됨 */
@@ -198,6 +211,8 @@ export interface TieGroup {
   end: number
   crossesBoundary: boolean
   decision: TieDecision | null
+  /** 동점 기준 값(같은 값이라 가려지지 않음). 세부점수 없는 평가가 있으면 null */
+  tieBreak: number[] | null
 }
 
 export interface Results {
@@ -213,12 +228,33 @@ export function proposalScores(data: AppData, no: number): (number | null)[] {
   return data.judges.map((j) => summarizeEvaluation(data.evaluations[evalKey(j.id, no)], data.criteria).total)
 }
 
+/** 동점 기준 항목별 위원 전체 소계 합(0.01점 단위 정수). 한 명이라도 해당 소계가 없으면(총점 직접입력 등) null */
+export function tieBreakUnits(data: AppData, no: number): number[] | null {
+  const out: number[] = []
+  for (const cat of TIEBREAK_CATEGORIES) {
+    let sum = 0
+    for (const j of data.judges) {
+      const v = summarizeEvaluation(data.evaluations[evalKey(j.id, no)], data.criteria).subtotals[cat]
+      if (v === null || v === undefined) return null
+      sum += toUnits(v)
+    }
+    out.push(sum)
+  }
+  return out
+}
+
+const cmpTb = (a: number[], b: number[]) => {
+  for (let k = 0; k < a.length; k++) if (a[k] !== b[k]) return b[k] - a[k]
+  return 0
+}
+
 export function computeResults(data: AppData): Results {
   const aggs = new Map<number, ProposalAgg>()
   for (const p of data.proposals) aggs.set(p.no, aggregateScores(proposalScores(data, p.no)))
 
   const complete = data.proposals.filter((p) => aggs.get(p.no)!.complete)
   const incomplete = data.proposals.filter((p) => !aggs.get(p.no)!.complete)
+  const tbs = new Map(complete.map((p) => [p.no, tieBreakUnits(data, p.no)]))
 
   // 실제 계산값(정수 단위)으로 내림차순. 동점 내부는 제안번호 순(임시)
   complete.sort((a, b) => aggs.get(b.no)!.trimmedUnits! - aggs.get(a.no)!.trimmedUnits! || a.no - b.no)
@@ -230,40 +266,68 @@ export function computeResults(data: AppData): Results {
     const u = aggs.get(complete[i].no)!.trimmedUnits!
     let j = i
     while (j < complete.length && aggs.get(complete[j].no)!.trimmedUnits === u) j++
-    let group = complete.slice(i, j)
-    const start = i + 1
-    const end = j
-    let decided = false
-    let needsDecision = false
-    let key: string | null = null
-    if (group.length > 1) {
-      const nos = group.map((p) => p.no)
-      key = tieKey(u, nos)
-      const crosses = TIER_BOUNDARIES.some((b) => start <= b && b < end)
-      const decision = data.tieDecisions[key] ?? null
-      tieGroups.push({ key, trimmedUnits: u, avg: aggs.get(nos[0])!.avg!, nos, start, end, crossesBoundary: crosses, decision })
-      if (decision) {
-        decided = true
-        group = decision.order.map((no) => group.find((p) => p.no === no)!).filter(Boolean)
-      } else if (crosses) {
-        needsDecision = true
+    const avgGroup = complete.slice(i, j)
+
+    // 평균 동점이면 1차 실시가능성 합계, 2차 효율성(경제성) 합계로 가른다.
+    // 세부점수가 없는 평가(총점 직접입력)가 섞여 있으면 기준을 적용할 수 없으므로 위원회 결정으로 넘긴다.
+    let subgroups = [avgGroup]
+    const canBreak = avgGroup.length > 1 && avgGroup.every((p) => tbs.get(p.no))
+    if (canBreak) {
+      const sorted = [...avgGroup].sort((a, b) => cmpTb(tbs.get(a.no)!, tbs.get(b.no)!) || a.no - b.no)
+      subgroups = []
+      for (const p of sorted) {
+        const last = subgroups[subgroups.length - 1]
+        if (last && cmpTb(tbs.get(last[0].no)!, tbs.get(p.no)!) === 0) last.push(p)
+        else subgroups.push([p])
       }
     }
-    group.forEach((p, k) => {
-      const position = start + k
-      rows.push({
-        no: p.no, title: p.title, agg: aggs.get(p.no)!,
-        rank: start, position, tieSize: end - start + 1,
-        needsDecision, decided, tieKey: key,
-        award: needsDecision ? '동점 확인 필요' : awardForPosition(position),
+
+    let pos = i + 1
+    for (let g = 0; g < subgroups.length; g++) {
+      let group = subgroups[g]
+      const start = pos
+      const end = pos + group.length - 1
+      let decided = false
+      let needsDecision = false
+      let key: string | null = null
+      if (group.length > 1) {
+        const nos = group.map((p) => p.no)
+        key = tieKey(u, nos)
+        const crosses = TIER_BOUNDARIES.some((b) => start <= b && b < end)
+        const decision = data.tieDecisions[key] ?? null
+        tieGroups.push({ key, trimmedUnits: u, avg: aggs.get(nos[0])!.avg!, nos, start, end, crossesBoundary: crosses, decision, tieBreak: tbs.get(nos[0])?.map(fromUnits) ?? null })
+        if (decision) {
+          decided = true
+          group = decision.order.map((no) => group.find((p) => p.no === no)!).filter(Boolean)
+        } else if (crosses) {
+          needsDecision = true
+        }
+      }
+      // 이 묶음을 다른 묶음과 가른 기준: 1차 값이 다른 묶음과 모두 다르면 1차, 아니면 2차
+      let brokenBy: string | null = null
+      if (subgroups.length > 1) {
+        const mine = tbs.get(group[0].no)!
+        const firstUnique = subgroups.every((o, k) => k === g || tbs.get(o[0].no)![0] !== mine[0])
+        brokenBy = firstUnique ? `${TIEBREAK_CATEGORIES[0]} 합계` : `${TIEBREAK_CATEGORIES[0]} 합계 동일 → ${TIEBREAK_CATEGORIES[1]} 합계`
+      }
+      group.forEach((p, k) => {
+        const position = start + k
+        rows.push({
+          no: p.no, title: p.title, agg: aggs.get(p.no)!,
+          rank: start, position, tieSize: group.length, avgTieSize: avgGroup.length,
+          tieBreak: tbs.get(p.no)?.map(fromUnits) ?? null, brokenBy,
+          needsDecision, decided, tieKey: key,
+          award: needsDecision ? '동점 확인 필요' : awardForPosition(position),
+        })
       })
-    })
+      pos = end + 1
+    }
     i = j
   }
   for (const p of incomplete) {
     rows.push({
       no: p.no, title: p.title, agg: aggs.get(p.no)!,
-      rank: null, position: null, tieSize: 0,
+      rank: null, position: null, tieSize: 0, avgTieSize: 0, tieBreak: null, brokenBy: null,
       needsDecision: false, decided: false, tieKey: null, award: '집계 미완료',
     })
   }

@@ -253,3 +253,84 @@ describe('점수 초기화', () => {
     expect(() => clearScores(d)).toThrow(LockedError)
   })
 })
+
+describe('동점 처리 기준: 1차 실시가능성 합계, 2차 효율성(경제성) 합계', () => {
+  /** 6명 모두 같은 세부점수(c1~c10 순)로 입력 */
+  function withItems(rows: Record<number, number[]>) {
+    let d = createInitialData('test')
+    for (const [no, items] of Object.entries(rows))
+      for (const j of d.judges)
+        items.forEach((v, k) => { d = setItemScore(d, j.id, Number(no), `c${k + 1}`, v) })
+    return d
+  }
+  //                실시(10,10,5) 효율(10,10) 창의(15,10) 계속(10,5) 적용(15)
+  const A = [10, 10, 5, 5, 5, 15, 10, 10, 5, 15] // 90, 실시 25, 효율 10
+  const B = [10, 10, 4, 5, 6, 15, 10, 10, 5, 15] // 90, 실시 24, 효율 11
+  const C = [10, 10, 5, 6, 5, 15, 9, 10, 5, 15] //  90, 실시 25, 효율 11
+
+  it('평균이 같으면 실시가능성 합계가 높은 제안이 앞선다(공동순위 아님)', () => {
+    const r = computeResults(withItems({ 1: B, 2: A }))
+    const a = r.rows.find((x) => x.no === 2)!
+    const b = r.rows.find((x) => x.no === 1)!
+    expect(a.agg.avg).toBe(b.agg.avg)
+    expect([a.rank, b.rank]).toEqual([1, 2])
+    expect(a.tieSize).toBe(1)
+    expect(a.tieBreak).toEqual([150, 60]) // 실시 25×6, 효율 10×6
+    expect(a.brokenBy).toBe('실시가능성 합계')
+    expect([a.award, b.award]).toEqual(['최우수', '우수'])
+    expect(r.unresolvedTies).toHaveLength(0)
+  })
+
+  it('실시가능성 합계도 같으면 효율성(경제성) 합계로 가른다', () => {
+    const r = computeResults(withItems({ 1: A, 2: C }))
+    expect(r.rows.find((x) => x.no === 2)!.rank).toBe(1)
+    expect(r.rows.find((x) => x.no === 1)!.rank).toBe(2)
+    expect(r.rows.find((x) => x.no === 2)!.brokenBy).toMatch(/효율성/)
+    expect(r.unresolvedTies).toHaveLength(0)
+  })
+
+  it('3건 동점: 실시가능성으로 1건 가르고 남은 2건은 효율성으로', () => {
+    const r = computeResults(withItems({ 1: A, 2: B, 3: C }))
+    expect(r.rows.slice(0, 3).map((x) => x.no)).toEqual([3, 1, 2]) // C(25,11) > A(25,10) > B(24,11)
+    expect(r.rows.slice(0, 3).map((x) => x.rank)).toEqual([1, 2, 3])
+  })
+
+  it('두 기준까지 모두 같으면 공동순위, 수상 경계면 위원회 결정 필요', () => {
+    const r = computeResults(withItems({ 1: A, 2: [...A] }))
+    expect(r.rows[0].rank).toBe(1)
+    expect(r.rows[1].rank).toBe(1)
+    expect(r.unresolvedTies).toHaveLength(1)
+  })
+
+  it('세부점수가 없는 평가(총점 직접입력)가 섞이면 기준 적용 불가 → 위원회 결정', () => {
+    let d = withItems({ 1: A, 2: B })
+    d = clearAndTotal(d)
+    const r = computeResults(d)
+    expect(r.rows[0].tieBreak === null || r.rows[1].tieBreak === null).toBe(true)
+    expect(r.unresolvedTies).toHaveLength(1)
+  })
+})
+
+/** 제안 2번 위원1 평가를 같은 총점(90)의 총점 직접입력으로 바꾼다 */
+function clearAndTotal(d: AppData): AppData {
+  const ev = { ...d.evaluations }
+  delete ev['j1:2']
+  return setTotalScore({ ...d, evaluations: ev }, 'j1', 2, 90)
+}
+
+describe('저장 데이터 호환(새로고침 시 초기화 방지)', () => {
+  it('여러 작업을 거친 데이터도 다시 불러올 때 검사를 통과한다', async () => {
+    const { clearScores } = await import('./store')
+    let d = fillTestScores(createInitialData('test'))
+    d = setItemScore(d, 'j1', 1, 'c1', null)
+    d = clearScores(d, 'j2')
+    d = setTotalScore(d, 'j2', 3, 77)
+    d.settings.allowDecimal = true
+    d = setItemScore(d, 'j2', 4, 'c1', 7.5)
+    const key = computeResults(d).tieGroups[0]?.key
+    if (key) d.tieDecisions[key] = { order: [], reason: 'x', at: '' }
+    d.finalized = { at: '', by: 'x', rows: [] }
+    const roundTrip = JSON.parse(JSON.stringify(d))
+    expect(validateBackup(roundTrip)).toBeNull()
+  })
+})

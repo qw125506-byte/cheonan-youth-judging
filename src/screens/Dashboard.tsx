@@ -80,6 +80,12 @@ export default function Dashboard() {
         ))}
       </div>
 
+      <Notice kind="info">
+        <b>데이터 저장 위치:</b> 이 브라우저 · {location.protocol === 'file:' ? '이 PC에서 연 HTML 파일' : location.host}.
+        새로고침하거나 창을 닫았다 다시 열어도 점수는 그대로 남고, 지우는 것은 초기화 버튼뿐입니다.
+        단, <b>다른 주소</b>(웹 주소 ↔ HTML 파일), <b>다른 브라우저</b>(크롬 ↔ 엣지), <b>시크릿 창</b>, <b>다른 PC</b>로 열면 저장 공간이 달라 빈 심사표가 보입니다 — 항상 같은 PC·같은 브라우저·같은 주소로 여세요.
+      </Notice>
+
       <Card title="심사 개요">
         <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
           <div><dt className="inline text-gray-500">일시 </dt><dd className="inline">2026. 10. 19.(월) 14:00 ~ 16:00</dd></div>

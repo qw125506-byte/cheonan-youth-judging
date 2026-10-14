@@ -6,25 +6,55 @@ const KEY = { real: 'cyj2026:real', test: 'cyj2026:test', active: 'cyj2026:activ
 
 export const nowIso = () => new Date().toISOString()
 
+export interface LoadInfo {
+  /** 저장소에서 불러왔는지(false면 처음 시작) */
+  restored: boolean
+  /** 마지막 저장 시각(ISO) */
+  savedAt: string | null
+  /** 저장된 데이터를 읽지 못해 따로 보관해 둔 키(있으면 경고 표시) */
+  quarantinedKey: string | null
+}
+
+export let lastLoadInfo: LoadInfo = { restored: false, savedAt: null, quarantinedKey: null }
+
+/**
+ * 저장된 데이터를 불러온다. 새로고침·재접속 시 절대 초기화하지 않는다.
+ * 읽을 수 없는 데이터가 있으면 지우지 않고 별도 키로 옮겨 보관한 뒤 빈 상태로 시작한다(덮어쓰기 방지).
+ */
 export function loadData(mode: 'real' | 'test'): AppData {
-  try {
-    const raw = localStorage.getItem(KEY[mode])
-    if (raw) {
+  lastLoadInfo = { restored: false, savedAt: null, quarantinedKey: null }
+  let raw: string | null = null
+  try { raw = localStorage.getItem(KEY[mode]) } catch { return createInitialData(mode) }
+  if (raw) {
+    try {
       const parsed = JSON.parse(raw)
-      const err = validateBackup(parsed)
-      if (!err && parsed.dataMode === mode) return parsed as AppData
-    }
-  } catch { /* 손상·차단 시 초기값 */ }
+      if (!validateBackup(parsed) && parsed.dataMode === mode) {
+        let savedAt: string | null = null
+        try { savedAt = localStorage.getItem(`${KEY[mode]}:savedAt`) } catch { /* 무시 */ }
+        lastLoadInfo = { restored: true, savedAt, quarantinedKey: null }
+        return parsed as AppData
+      }
+    } catch { /* 아래에서 보관 */ }
+    const qk = `${KEY[mode]}:unreadable:${Date.now()}`
+    try { localStorage.setItem(qk, raw) } catch { /* 공간 부족 시에도 원본 키는 그대로 둠 */ }
+    lastLoadInfo = { restored: false, savedAt: null, quarantinedKey: qk }
+  }
   return createInitialData(mode)
 }
 
 export function saveData(data: AppData): boolean {
   try {
     localStorage.setItem(KEY[data.dataMode], JSON.stringify(data))
+    localStorage.setItem(`${KEY[data.dataMode]}:savedAt`, nowIso())
     return true
   } catch {
     return false
   }
+}
+
+/** 브라우저가 저장 공간 부족 등을 이유로 데이터를 자동 삭제하지 않도록 요청 */
+export function requestPersistentStorage() {
+  try { void navigator.storage?.persist?.() } catch { /* 지원하지 않는 브라우저 */ }
 }
 
 export function loadActiveMode(): 'real' | 'test' {

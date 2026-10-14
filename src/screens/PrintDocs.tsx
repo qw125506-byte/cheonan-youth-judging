@@ -116,6 +116,8 @@ function SummarySheet() {
         </tbody>
       </table>
       <p className="mt-2" style={{ fontSize: '8.5pt' }}>※ 빨간 굵은 글씨: 제외된 최고점, 회색 취소선: 제외된 최저점. 평균은 소수 둘째 자리 반올림 표시(순위는 원값 기준).
+        {' '}최종 평균이 같으면 ① 실시가능성 합계(위원 6명 소계 합) ② 효율성(경제성) 합계가 높은 순으로 순위를 정하고, 그래도 같으면 공동순위로 두고 수상 등급 경계에 걸치면 위원회가 결정합니다.
+        {results.rows.filter((r) => r.brokenBy && r.avgTieSize > 1).map((r) => ` 제안 ${r.no}: ${r.brokenBy}(실시 ${fmtScore(r.tieBreak![0])}, 효율 ${fmtScore(r.tieBreak![1])}).`).join('')}
         {results.tieGroups.filter((g) => g.decision).map((g) => ` 동점(제안 ${g.nos.join('·')})은 위원회 결정: ${g.decision!.reason}.`).join('')}</p>
     </section>
   )
@@ -149,9 +151,11 @@ function FinalSheet() {
           ))}
         </tbody>
       </table>
+      <p className="mt-2" style={{ fontSize: '8.5pt' }}>※ 최종 평균이 같으면 ① 실시가능성 합계(위원 6명 소계 합) ② 효율성(경제성) 합계가 높은 순으로 순위를 정하고, 그래도 같으면 공동순위로 두고 수상 등급 경계에 걸치면 위원회가 결정합니다.
+        {results.rows.filter((r) => r.brokenBy && r.avgTieSize > 1).map((r) => ` 제안 ${r.no}: ${r.brokenBy}(실시 ${fmtScore(r.tieBreak![0])}, 효율 ${fmtScore(r.tieBreak![1])}).`).join('')}</p>
       {results.tieGroups.some((g) => g.decision) && (
         <div className="mt-3" style={{ fontSize: '9pt' }}>
-          <b>동점 처리</b>
+          <b>동점 처리(위원회 결정)</b>
           {results.tieGroups.filter((g) => g.decision).map((g) => (
             <div key={g.key}>· 제안 {g.nos.join('·')} ({fmt2(g.avg)}점): 위원회 결정 순서 {g.decision!.order.join(' → ')} — {g.decision!.reason}</div>
           ))}

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AppData } from './lib/types'
 import { computeResults, progress } from './lib/calc'
-import { loadActiveMode, loadData, saveActiveMode, saveData } from './lib/store'
+import { lastLoadInfo, loadActiveMode, loadData, requestPersistentStorage, saveActiveMode, saveData } from './lib/store'
 import { AppCtx, type PrintDoc, type Tab } from './components/ctx'
 import Dashboard from './screens/Dashboard'
 import EntryScreen from './screens/EntryScreen'
@@ -32,6 +32,19 @@ export default function App() {
   const [printDoc, setPrintDoc] = useState<PrintDoc | null>(null)
 
   const notify = useCallback((msg: string, kind: 'ok' | 'error' = 'ok') => setToast({ msg, kind }), [])
+  const [quarantined, setQuarantined] = useState<string | null>(null)
+
+  // 시작 시: 저장소 영구 보존 요청, 불러온 데이터 안내(새로고침해도 초기화되지 않음을 확인할 수 있게)
+  useEffect(() => {
+    requestPersistentStorage()
+    const info = lastLoadInfo
+    if (info.quarantinedKey) setQuarantined(info.quarantinedKey)
+    else if (info.restored) {
+      const n = Object.keys(dataRef.current.evaluations).length
+      const at = info.savedAt ? new Date(info.savedAt).toLocaleString('ko-KR') : ''
+      notify(`저장된 데이터를 불러왔습니다 — 평가 ${n}건${at ? ` (마지막 저장 ${at})` : ''}`)
+    }
+  }, [notify])
   useEffect(() => {
     if (!toast) return
     const t = setTimeout(() => setToast(null), toast.kind === 'error' ? 6000 : 2500)
@@ -116,6 +129,11 @@ export default function App() {
           </nav>
         </header>
 
+        {quarantined && (
+          <div className="bg-red-600 px-4 py-2 text-center text-sm font-bold text-white">
+            저장된 데이터를 읽지 못해 빈 화면으로 시작했습니다. 원본은 지우지 않고 보관했습니다({quarantined}). 입력하기 전에 담당자에게 확인하세요.
+          </div>
+        )}
         {toast && (
           <div role="status" className={`fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded px-4 py-2 text-sm font-medium text-white shadow-lg ${toast.kind === 'error' ? 'bg-red-600' : 'bg-navy-800'}`}>
             {toast.msg}

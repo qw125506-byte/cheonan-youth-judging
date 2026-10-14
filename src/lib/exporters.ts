@@ -83,14 +83,17 @@ export function buildWorkbook(data: AppData): XLSX.WorkBook {
 
   // 3) 최종 순위표
   {
-    const rows: Cell[][] = [[`최종 순위표${testNote}`], ['정렬순위', '공동순위', '제안번호', '제안명', '검토부서', '최종 평균', '선정 등급', '동점 처리']]
+    const rows: Cell[][] = [[`최종 순위표${testNote}`], ['순위', '공동순위', '제안번호', '제안명', '검토부서', '최종 평균', '선정 등급', '실시가능성 합계', '효율성(경제성) 합계', '동점 처리']]
     for (const row of res.rows) {
       const p = data.proposals.find((x) => x.no === row.no)!
       rows.push([row.position, row.rank === null ? '' : row.tieSize > 1 ? `공동 ${row.rank}위` : `${row.rank}위`,
         row.no, row.title, p.dept, row.agg.avg === null ? '' : fmt2(row.agg.avg), row.award,
-        row.decided ? '위원회 결정' : row.needsDecision ? '결정 필요' : row.tieSize > 1 ? '동점(등급 영향 없음)' : ''])
+        row.tieBreak?.[0] ?? '', row.tieBreak?.[1] ?? '',
+        [row.brokenBy && row.avgTieSize > 1 ? `평균 동점 → ${row.brokenBy}` : '',
+          row.decided ? '위원회 결정' : row.needsDecision ? '위원회 결정 필요' : row.tieSize > 1 ? '공동순위(등급 영향 없음)' : ''].filter(Boolean).join(' / ')])
     }
-    XLSX.utils.book_append_sheet(wb, sheet(rows, [9, 10, 9, 60, 14, 10, 14, 18]), '최종순위')
+    rows.push([], ['※ 최종 평균이 같으면 ① 실시가능성 합계(위원 6명 소계 합) ② 효율성(경제성) 합계가 높은 순으로 순위를 정하고, 그래도 같으면 공동순위로 두고 수상 등급 경계에 걸치면 위원회가 결정합니다.'])
+    XLSX.utils.book_append_sheet(wb, sheet(rows, [7, 10, 9, 60, 14, 10, 14, 14, 16, 36]), '최종순위')
   }
 
   // 4) 수상자 목록
