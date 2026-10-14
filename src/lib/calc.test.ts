@@ -1,0 +1,207 @@
+import { describe, expect, it } from 'vitest'
+import { aggregateScores, computeResults, evalKey, fmt2, parseScore, summarizeEvaluation, verifyResults } from './calc'
+import { createInitialData, CRITERIA } from './initialData'
+import { setItemScore, setTotalScore, validateBackup, LockedError } from './store'
+import { fillTestScores } from './testData'
+import type { AppData } from './types'
+
+/** 위원별 총점만으로 데이터 구성(총점 직접입력) */
+function withTotals(rows: Record<number, (number | null)[]>): AppData {
+  let d = createInitialData('test')
+  for (const [no, scores] of Object.entries(rows))
+    scores.forEach((s, i) => { if (s !== null) d = setTotalScore(d, d.judges[i].id, Number(no), s) })
+  return d
+}
+
+describe('최고·최저 1개씩 제외 평균', () => {
+  it('보고서 예시: 82,90,85,76,88,92 → 86.25', () => {
+    const a = aggregateScores([82, 90, 85, 76, 88, 92])
+    expect(a.maxIndex).toBe(5)
+    expect(a.minIndex).toBe(3)
+    expect(a.trimmedSum).toBe(345)
+    expect(a.avg).toBe(86.25)
+  })
+
+  it('위원 1명 미입력이면 집계하지 않는다(0점 처리 금지)', () => {
+    const a = aggregateScores([82, 90, null, 76, 88, 92])
+    expect(a.complete).toBe(false)
+    expect(a.avg).toBeNull()
+    expect(a.enteredCount).toBe(5)
+  })
+
+  it('6명 모두 같은 점수: 서로 다른 두 위원만 제외, 평균은 그 점수', () => {
+    const a = aggregateScores([80, 80, 80, 80, 80, 80])
+    expect(a.maxIndex).not.toBe(a.minIndex)
+    expect(a.avg).toBe(80)
+  })
+
+  it('최고점이 2명 이상 동일해도 1개만 제외', () => {
+    const a = aggregateScores([95, 95, 80, 85, 70, 90])
+    expect(a.trimmedSum).toBe(95 + 80 + 85 + 90)
+    expect(a.avg).toBe(87.5)
+  })
+
+  it('최저점이 2명 이상 동일해도 1개만 제외', () => {
+    const a = aggregateScores([60, 90, 60, 85, 80, 70])
+    expect(a.trimmedSum).toBe(60 + 85 + 80 + 70)
+    expect(a.avg).toBe(73.75)
+  })
+
+  it('소수점 점수도 오차 없이 계산', () => {
+    const a = aggregateScores([80.1, 80.2, 80.3, 80.4, 80.5, 80.6])
+    expect(a.trimmedSum).toBe(321.4)
+    expect(fmt2(a.avg)).toBe('80.35')
+  })
+})
+
+describe('입력값 검증', () => {
+  it('빈칸은 미입력(null)', () => expect(parseScore('  ', 10, false)).toEqual({ ok: true, value: null }))
+  it('배점 초과 거부', () => expect(parseScore('11', 10, false).ok).toBe(false))
+  it('배점과 같은 점수 허용', () => expect(parseScore('15', 15, false)).toEqual({ ok: true, value: 15 }))
+  it('음수 거부', () => expect(parseScore('-1', 10, false).ok).toBe(false))
+  it('문자 거부', () => {
+    expect(parseScore('a', 10, false).ok).toBe(false)
+    expect(parseScore('8점', 10, false).ok).toBe(false)
+    expect(parseScore('1e1', 10, false).ok).toBe(false)
+  })
+  it('소수점: 설정에 따라', () => {
+    expect(parseScore('7.5', 10, false).ok).toBe(false)
+    expect(parseScore('7.5', 10, true)).toEqual({ ok: true, value: 7.5 })
+    expect(parseScore('7.25', 10, true).ok).toBe(false)
+  })
+  it('저장 계층도 배점 초과 백업을 거부', () => {
+    const d = createInitialData('test')
+    d.evaluations['j1:1'] = { mode: 'detail', items: { c1: 11 }, total: null, updatedAt: '' }
+    expect(validateBackup(d)).toMatch(/범위/)
+  })
+})
+
+describe('세부점수 합계', () => {
+  it('10개 항목 모두 입력해야 총점이 생긴다', () => {
+    let d = createInitialData('test')
+    for (const c of CRITERIA.slice(0, 9)) d = setItemScore(d, 'j1', 1, c.id, c.max)
+    expect(summarizeEvaluation(d.evaluations['j1:1'], d.criteria).total).toBeNull()
+    d = setItemScore(d, 'j1', 1, 'c10', 15)
+    const s = summarizeEvaluation(d.evaluations['j1:1'], d.criteria)
+    expect(s.total).toBe(100)
+    expect(s.subtotals['실시가능성']).toBe(25)
+  })
+  it('세부입력이 있는 평가에 총점 직접입력 불가', () => {
+    let d = createInitialData('test')
+    d = setItemScore(d, 'j1', 1, 'c1', 5)
+    expect(() => setTotalScore(d, 'j1', 1, 80)).toThrow()
+  })
+  it('총점입력 평가는 세부점수가 작성된 것으로 표시되지 않는다', () => {
+    const d = setTotalScore(createInitialData('test'), 'j1', 1, 80)
+    const s = summarizeEvaluation(d.evaluations['j1:1'], d.criteria)
+    expect(s.mode).toBe('total')
+    expect(s.enteredItems).toBe(0)
+    expect(Object.values(s.subtotals).every((v) => v === null)).toBe(true)
+  })
+})
+
+describe('순위·동점', () => {
+  it('순위는 반올림 전 정확값(제외 후 합계 정수 단위)으로 비교', () => {
+    // 80.125 vs 80.1 — 반올림 표시값이 아니라 원값으로 순위 판정
+    const d = withTotals({
+      1: [80, 80, 80, 80.5, 0, 100], // 제외 후 320.5 → 80.125
+      2: [80, 80, 80, 80.4, 0, 100], // 320.4 → 80.1
+    })
+    d.settings.allowDecimal = true
+    const r = computeResults(d)
+    const one = r.rows.find((x) => x.no === 1)!
+    const two = r.rows.find((x) => x.no === 2)!
+    expect(one.rank).toBe(1)
+    expect(two.rank).toBe(2)
+  })
+
+  it('최종점수가 같으면 공동순위', () => {
+    const d = withTotals({ 1: [90, 90, 90, 90, 90, 90], 2: [90, 90, 90, 90, 90, 90], 3: [80, 80, 80, 80, 80, 80] })
+    const r = computeResults(d)
+    expect(r.rows.find((x) => x.no === 1)!.rank).toBe(1)
+    expect(r.rows.find((x) => x.no === 2)!.rank).toBe(1)
+    expect(r.rows.find((x) => x.no === 3)!.rank).toBe(3)
+  })
+
+  it('1·2위 동점(최우수/우수 경계)은 위원회 결정 전까지 수상 미확정', () => {
+    const d = withTotals({ 1: [90, 90, 90, 90, 90, 90], 2: [90, 90, 90, 90, 90, 90] })
+    const r = computeResults(d)
+    expect(r.unresolvedTies).toHaveLength(1)
+    expect(r.rows.find((x) => x.no === 1)!.award).toBe('동점 확인 필요')
+  })
+
+  it('2·3위 동점(같은 우수 등급 안)은 결정 없이 둘 다 우수', () => {
+    const d = withTotals({ 1: Array(6).fill(95), 2: Array(6).fill(90), 3: Array(6).fill(90) })
+    const r = computeResults(d)
+    expect(r.unresolvedTies).toHaveLength(0)
+    expect(r.rows.find((x) => x.no === 2)!.award).toBe('우수')
+    expect(r.rows.find((x) => x.no === 3)!.award).toBe('우수')
+  })
+
+  it('6·7위 동점이면 확인 필요 → 위원회 결정 후 장려/미선정 확정', () => {
+    const rows: Record<number, number[]> = {}
+    const scores = [99, 98, 97, 96, 95, 90, 90, 80]
+    scores.forEach((s, i) => { rows[i + 1] = Array(6).fill(s) })
+    const d = withTotals(rows)
+    let r = computeResults(d)
+    expect(r.unresolvedTies).toHaveLength(1)
+    expect(r.unresolvedTies[0].nos).toEqual([6, 7])
+    const key = r.unresolvedTies[0].key
+    d.tieDecisions[key] = { order: [7, 6], reason: '위원회 협의', at: '' }
+    r = computeResults(d)
+    expect(r.unresolvedTies).toHaveLength(0)
+    expect(r.rows.find((x) => x.no === 7)!.award).toBe('장려')
+    expect(r.rows.find((x) => x.no === 6)!.award).toBe('미선정')
+  })
+
+  it('점수가 바뀌면 이전 동점 결정은 자동으로 무효', () => {
+    const d = withTotals({ 1: Array(6).fill(90), 2: Array(6).fill(90) })
+    const key = computeResults(d).unresolvedTies[0].key
+    d.tieDecisions[key] = { order: [2, 1], reason: 'x', at: '' }
+    // 한 명만 91로 올리면 그 점수가 최고점으로 제외되어 평균이 그대로이므로 두 명을 올린다
+    expect(computeResults(setTotalScore(d, 'j1', 1, 91)).unresolvedTies).toHaveLength(0) // 결정은 유효
+    const d2 = setTotalScore(setTotalScore(d, 'j1', 1, 91), 'j2', 1, 91)
+    const r = computeResults(d2)
+    expect(r.rows.find((x) => x.no === 1)!.position).toBe(1)
+    expect(r.rows.find((x) => x.no === 1)!.decided).toBe(false)
+  })
+
+  it('점수 수정이 순위에 즉시 반영', () => {
+    let d = withTotals({ 1: Array(6).fill(80), 2: Array(6).fill(85) })
+    expect(computeResults(d).rows[0].no).toBe(2)
+    for (const j of d.judges) d = setTotalScore(d, j.id, 1, 90)
+    expect(computeResults(d).rows[0].no).toBe(1)
+  })
+})
+
+describe('전체 시나리오(연습 데이터 84건)', () => {
+  const d = fillTestScores(createInitialData('test'))
+  const r = computeResults(d)
+
+  it('84건 모두 집계 완료', () => expect(r.allComplete).toBe(true))
+  it('독립 재계산 검증이 모두 통과', () => expect(verifyResults(d, r).every((v) => v.ok)).toBe(true))
+  it('생성기가 6·7위 동점을 만든다', () => {
+    expect(r.unresolvedTies.some((g) => g.start <= 6 && g.end >= 7)).toBe(true)
+  })
+  it('실제 모드에서는 테스트 점수 생성 불가', () => {
+    expect(() => fillTestScores(createInitialData('real'))).toThrow()
+  })
+  it('실제 초기 데이터는 모두 미입력', () => {
+    const real = createInitialData('real')
+    expect(Object.keys(real.evaluations)).toHaveLength(0)
+    expect(real.proposals).toHaveLength(14)
+    expect(real.judges).toHaveLength(6)
+    expect(real.criteria.reduce((a, c) => a + c.max, 0)).toBe(100)
+  })
+  it('확정 후 점수 수정 차단', () => {
+    const locked = { ...d, finalized: { at: '', by: '', rows: [] } }
+    expect(() => setItemScore(locked, 'j1', 1, 'c1', 1)).toThrow(LockedError)
+  })
+  it('수정 이력에 변경 전후 값이 남는다', () => {
+    let x = setItemScore(createInitialData('test'), 'j1', 1, 'c1', 5)
+    x = setItemScore(x, 'j1', 1, 'c1', 7)
+    const last = x.audit[x.audit.length - 1]
+    expect([last.before, last.after]).toEqual([5, 7])
+    expect(x.evaluations[evalKey('j1', 1)].items.c1).toBe(7)
+  })
+})
