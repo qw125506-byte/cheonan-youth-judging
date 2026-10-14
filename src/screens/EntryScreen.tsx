@@ -3,7 +3,7 @@ import { useApp } from '../components/ctx'
 import ScoreInput from '../components/ScoreInput'
 import { Button, Card, Notice } from '../components/ui'
 import { categoriesOf, evalKey, fmtScore, summarizeEvaluation } from '../lib/calc'
-import { resetEvaluation, setItemScore } from '../lib/store'
+import { clearScores, resetEvaluation, setItemScore } from '../lib/store'
 import type { AppData } from '../lib/types'
 
 function statusText(data: AppData, judgeId: string, no: number) {
@@ -45,8 +45,36 @@ export default function EntryScreen() {
           })}
         </div>
         {data.finalized && <div className="mt-3"><Notice kind="warn">결과가 확정되어 점수가 잠겨 있습니다(조회만 가능).</Notice></div>}
+        <ResetButtons judgeId={judgeId} />
       </Card>
       {view === 'single' ? <SingleEntry judgeId={judgeId} /> : <BatchEntry judgeId={judgeId} />}
+    </div>
+  )
+}
+
+/** 점수 초기화: 선택한 위원 / 전체 위원. 위원·제안 정보와 설정은 그대로 둔다. */
+function ResetButtons({ judgeId }: { judgeId: string }) {
+  const { data, update, notify } = useApp()
+  const judge = data.judges.find((j) => j.id === judgeId)!
+  const locked = !!data.finalized
+  const judgeCount = Object.keys(data.evaluations).filter((k) => k.startsWith(`${judgeId}:`)).length
+  const allCount = Object.keys(data.evaluations).length
+  const label = data.dataMode === 'test' ? '연습' : '실제 심사'
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3">
+      <span className="text-xs text-gray-500">입력값 초기화 (위원·제안 정보와 설정은 유지, 수정 이력에 기록)</span>
+      <Button className="ml-auto" disabled={locked || judgeCount === 0} onClick={() => {
+        if (!confirm(`${judge.name} 위원이 입력한 점수 ${judgeCount}건을 모두 지웁니다.
+다른 위원 점수는 그대로입니다. 계속할까요?`)) return
+        if (update((d) => clearScores(d, judgeId))) notify(`${judge.name} 위원 점수를 초기화했습니다`)
+      }}>{judge.name} 위원 점수 초기화</Button>
+      <Button variant="danger" disabled={locked || allCount === 0} onClick={() => {
+        if (!confirm(`[${label} 데이터] 위원 6명의 점수 ${allCount}건과 동점 결정을 모두 지웁니다.
+먼저 「⑤ 출력·백업」에서 백업 파일을 받아 두는 것을 권장합니다. 계속할까요?`)) return
+        if (data.dataMode === 'real' && prompt("실제 심사 점수를 모두 지우려면 '초기화'를 입력하세요") !== '초기화') { notify('초기화를 취소했습니다'); return }
+        if (update((d) => clearScores(d))) notify('전체 점수를 초기화했습니다')
+      }}>전체 점수 초기화</Button>
     </div>
   )
 }
@@ -168,11 +196,11 @@ function SingleEntry({ judgeId }: { judgeId: string }) {
           <span>Enter·↓ 다음 항목, ↑ 이전 항목, Esc 입력 취소. 입력값은 즉시 자동 저장됩니다.</span>
           {ev && ev.mode === 'detail' && (
             <Button className="ml-auto" disabled={locked} onClick={() => {
-              if (confirm('이 평가의 입력값을 모두 지울까요? (수정 이력에 기록됩니다)')) {
-                update((d) => resetEvaluation(d, judgeId, no, '평가 전체 삭제'))
-                notify('평가를 삭제했습니다')
+              if (confirm(`${judge.name} 위원의 제안 ${no}번 입력값을 모두 지울까요? (수정 이력에 기록됩니다)`)) {
+                update((d) => resetEvaluation(d, judgeId, no, '평가 초기화'))
+                notify(`제안 ${no}번 평가를 초기화했습니다`)
               }
-            }}>이 평가 지우기</Button>
+            }}>이 평가 초기화</Button>
           )}
         </div>
       </Card>

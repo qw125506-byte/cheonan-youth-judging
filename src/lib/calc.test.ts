@@ -230,3 +230,26 @@ describe('전체 시나리오(연습 데이터 84건)', () => {
     expect(x.evaluations[evalKey('j1', 1)].items.c1).toBe(7)
   })
 })
+
+describe('점수 초기화', () => {
+  it('한 위원 점수만 지우고 나머지·위원 정보는 유지', async () => {
+    const { clearScores } = await import('./store')
+    const d = fillTestScores(createInitialData('test'))
+    const x = clearScores(d, 'j3')
+    expect(Object.keys(x.evaluations).filter((k) => k.startsWith('j3:'))).toHaveLength(0)
+    expect(Object.keys(x.evaluations)).toHaveLength(70)
+    expect(x.judges).toEqual(d.judges)
+    expect(x.audit[x.audit.length - 1].note).toMatch(/점수 초기화/)
+  })
+  it('전체 점수 초기화', async () => {
+    const { clearScores } = await import('./store')
+    const x = clearScores(fillTestScores(createInitialData('test')))
+    expect(Object.keys(x.evaluations)).toHaveLength(0)
+    expect(computeResults(x).completeCount).toBe(0)
+  })
+  it('확정 후에는 초기화 불가', async () => {
+    const { clearScores } = await import('./store')
+    const d = { ...fillTestScores(createInitialData('test')), finalized: { at: '', by: '', rows: [] } }
+    expect(() => clearScores(d)).toThrow(LockedError)
+  })
+})

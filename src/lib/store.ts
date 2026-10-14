@@ -146,3 +146,14 @@ export function resetEvaluation(data: AppData, judgeId: string, no: number, reas
 export function logSystem(data: AppData, note: string): AppData {
   return { ...data, audit: withAudit(data, [{ judgeId: '-', proposalNo: 0, field: 'system', before: null, after: null, note }]) }
 }
+
+/** 지정 위원(없으면 전체)의 점수를 모두 지운다. 위원·제안·설정은 유지하고, 동점 결정은 점수가 바뀌므로 함께 지운다. */
+export function clearScores(data: AppData, judgeId?: string): AppData {
+  if (data.finalized) throw new LockedError()
+  const keys = Object.keys(data.evaluations).filter((k) => !judgeId || k.startsWith(`${judgeId}:`))
+  if (keys.length === 0) return data
+  const evaluations = { ...data.evaluations }
+  for (const k of keys) delete evaluations[k]
+  const who = judgeId ? `${data.judges.find((j) => j.id === judgeId)?.name ?? judgeId} 위원` : '전체 위원'
+  return logSystem({ ...data, evaluations, tieDecisions: {} }, `${who} 점수 초기화 (평가 ${keys.length}건 삭제)`)
+}
