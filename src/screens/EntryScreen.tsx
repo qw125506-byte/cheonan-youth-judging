@@ -64,17 +64,21 @@ function ResetButtons({ judgeId }: { judgeId: string }) {
   return (
     <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3">
       <span className="text-xs text-gray-500">입력값 초기화 (위원·제안 정보와 설정은 유지, 수정 이력에 기록)</span>
-      <Button className="ml-auto" disabled={locked || judgeCount === 0} onClick={() => {
+      <Button className="ml-auto" onClick={() => {
+        if (locked) { notify('결과가 확정되어 점수가 잠겨 있습니다. 「④ 최종 순위·수상」에서 확정 해제 후 초기화할 수 있습니다.', 'error'); return }
+        if (judgeCount === 0) { notify(`${judge.name} 위원은 지울 점수가 없습니다(입력 0건)`, 'error'); return }
         if (!confirm(`${judge.name} 위원이 입력한 점수 ${judgeCount}건을 모두 지웁니다.
 다른 위원 점수는 그대로입니다. 계속할까요?`)) return
         if (update((d) => clearScores(d, judgeId))) notify(`${judge.name} 위원 점수를 초기화했습니다`)
-      }}>{judge.name} 위원 점수 초기화</Button>
-      <Button variant="danger" disabled={locked || allCount === 0} onClick={() => {
+      }}>{judge.name} 위원 점수 초기화 ({judgeCount}건)</Button>
+      <Button variant="danger" onClick={() => {
+        if (locked) { notify('결과가 확정되어 점수가 잠겨 있습니다. 「④ 최종 순위·수상」에서 확정 해제 후 초기화할 수 있습니다.', 'error'); return }
+        if (allCount === 0) { notify(`[${label} 데이터] 지울 점수가 없습니다(입력 0건)`, 'error'); return }
         if (!confirm(`[${label} 데이터] 위원 6명의 점수 ${allCount}건과 동점 결정을 모두 지웁니다.
 먼저 「⑤ 출력·백업」에서 백업 파일을 받아 두는 것을 권장합니다. 계속할까요?`)) return
         if (data.dataMode === 'real' && prompt("실제 심사 점수를 모두 지우려면 '초기화'를 입력하세요") !== '초기화') { notify('초기화를 취소했습니다'); return }
         if (update((d) => clearScores(d))) notify('전체 점수를 초기화했습니다')
-      }}>전체 점수 초기화</Button>
+      }}>전체 점수 초기화 ({allCount}건)</Button>
       <RestoreButton />
     </div>
   )
