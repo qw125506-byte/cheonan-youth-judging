@@ -67,6 +67,16 @@ export interface Finalization {
   rows: FinalResultRow[]
 }
 
+/** 점수 초기화 직전 상태(복구용, 1단계) */
+export interface ResetSnapshot {
+  at: string
+  /** 초기화 대상 위원(없으면 전체) */
+  judgeId: string | null
+  /** 초기화 직전 해당 범위의 평가 */
+  evaluations: Record<string, Evaluation>
+  tieDecisions: Record<string, TieDecision>
+}
+
 export interface Settings {
   allowDecimal: boolean
 }
@@ -86,4 +96,6 @@ export interface AppData {
   /** 키: tieKey() 결과 */
   tieDecisions: Record<string, TieDecision>
   finalized: Finalization | null
+  /** 직전 점수 초기화 복구용 보관본 */
+  lastReset?: ResetSnapshot | null
 }

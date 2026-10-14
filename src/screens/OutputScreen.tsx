@@ -83,7 +83,11 @@ export default function OutputScreen() {
             if (!confirm(`${label} 데이터의 모든 점수·동점 결정·확정·수정 이력을 지우고 초기 상태로 되돌립니다. 되돌릴 수 없습니다.\n먼저 백업 파일을 내려받았는지 확인하세요.`)) return
             const typed = prompt(`정말 초기화하려면 '초기화'를 입력하세요 (${label} 데이터)`)
             if (typed !== '초기화') { notify('초기화를 취소했습니다'); return }
-            replace(createInitialData(data.dataMode))
+            const fresh = createInitialData(data.dataMode)
+            // 점수는 「① 심사표 입력 → 직전 초기화 복구」로 되살릴 수 있게 보관
+            replace(Object.keys(data.evaluations).length
+              ? { ...fresh, lastReset: { at: new Date().toISOString(), judgeId: null, evaluations: data.evaluations, tieDecisions: data.tieDecisions } }
+              : fresh)
             notify(`${label} 데이터를 초기화했습니다`)
           }}>전체 초기화</Button>
         </div>

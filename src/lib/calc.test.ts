@@ -334,3 +334,37 @@ describe('저장 데이터 호환(새로고침 시 초기화 방지)', () => {
     expect(validateBackup(roundTrip)).toBeNull()
   })
 })
+
+describe('초기화 복구', () => {
+  it('전체 점수 초기화 → 복구하면 점수·동점 결정이 그대로 돌아온다', async () => {
+    const { clearScores, restoreLastReset } = await import('./store')
+    const d = fillTestScores(createInitialData('test'))
+    const key = computeResults(d).unresolvedTies[0].key
+    d.tieDecisions[key] = { order: computeResults(d).unresolvedTies[0].nos, reason: 'x', at: '' }
+    const cleared = clearScores(d)
+    expect(Object.keys(cleared.evaluations)).toHaveLength(0)
+    const back = restoreLastReset(cleared)
+    expect(back.evaluations).toEqual(d.evaluations)
+    expect(back.tieDecisions).toEqual(d.tieDecisions)
+    expect(back.lastReset).toBeNull()
+    expect(computeResults(back).rows.map((r) => [r.no, r.award])).toEqual(computeResults(d).rows.map((r) => [r.no, r.award]))
+  })
+  it('위원별 초기화 복구는 그 위원 점수만 되살리고 다른 위원 입력은 건드리지 않는다', async () => {
+    const { clearScores, restoreLastReset, enteredSinceReset } = await import('./store')
+    const d = fillTestScores(createInitialData('test'))
+    let x = clearScores(d, 'j2')
+    x = setItemScore(x, 'j1', 1, 'c1', 0) // 다른 위원 수정
+    x = setItemScore(x, 'j2', 1, 'c1', 3) // 초기화 이후 같은 위원 새 입력
+    expect(enteredSinceReset(x)).toBe(1)
+    const back = restoreLastReset(x)
+    expect(back.evaluations['j1:1'].items.c1).toBe(0)
+    expect(back.evaluations['j2:1']).toEqual(d.evaluations['j2:1'])
+    expect(Object.keys(back.evaluations)).toHaveLength(84)
+  })
+  it('복구본은 저장·불러오기 후에도 유효', async () => {
+    const { clearScores } = await import('./store')
+    const x = JSON.parse(JSON.stringify(clearScores(fillTestScores(createInitialData('test')))))
+    expect(validateBackup(x)).toBeNull()
+    expect(Object.keys(x.lastReset.evaluations)).toHaveLength(84)
+  })
+})

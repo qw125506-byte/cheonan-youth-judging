@@ -177,13 +177,42 @@ export function logSystem(data: AppData, note: string): AppData {
   return { ...data, audit: withAudit(data, [{ judgeId: '-', proposalNo: 0, field: 'system', before: null, after: null, note }]) }
 }
 
-/** 지정 위원(없으면 전체)의 점수를 모두 지운다. 위원·제안·설정은 유지하고, 동점 결정은 점수가 바뀌므로 함께 지운다. */
+/**
+ * 지정 위원(없으면 전체)의 점수를 모두 지운다. 위원·제안·설정은 유지하고, 동점 결정은 점수가 바뀌므로 함께 지운다.
+ * 지우기 직전 상태를 lastReset에 보관해 restoreLastReset으로 되돌릴 수 있다.
+ */
 export function clearScores(data: AppData, judgeId?: string): AppData {
   if (data.finalized) throw new LockedError()
   const keys = Object.keys(data.evaluations).filter((k) => !judgeId || k.startsWith(`${judgeId}:`))
   if (keys.length === 0) return data
   const evaluations = { ...data.evaluations }
-  for (const k of keys) delete evaluations[k]
+  const removed: AppData['evaluations'] = {}
+  for (const k of keys) { removed[k] = evaluations[k]; delete evaluations[k] }
   const who = judgeId ? `${data.judges.find((j) => j.id === judgeId)?.name ?? judgeId} 위원` : '전체 위원'
-  return logSystem({ ...data, evaluations, tieDecisions: {} }, `${who} 점수 초기화 (평가 ${keys.length}건 삭제)`)
+  return logSystem({
+    ...data, evaluations, tieDecisions: {},
+    lastReset: { at: nowIso(), judgeId: judgeId ?? null, evaluations: removed, tieDecisions: data.tieDecisions },
+  }, `${who} 점수 초기화 (평가 ${keys.length}건 삭제, 복구 가능)`)
+}
+
+/** 초기화 이후 같은 범위에 새로 입력된 평가 수(복구 시 덮어쓰게 됨) */
+export function enteredSinceReset(data: AppData): number {
+  const r = data.lastReset
+  if (!r) return 0
+  return Object.keys(data.evaluations).filter((k) => !r.judgeId || k.startsWith(`${r.judgeId}:`)).length
+}
+
+/** 직전 점수 초기화를 되돌린다. 초기화 이후 같은 범위에 입력한 점수는 초기화 직전 점수로 바뀐다. */
+export function restoreLastReset(data: AppData): AppData {
+  if (data.finalized) throw new LockedError()
+  const r = data.lastReset
+  if (!r) throw new Error('복구할 초기화 기록이 없습니다')
+  const evaluations = { ...data.evaluations }
+  for (const k of Object.keys(evaluations)) if (!r.judgeId || k.startsWith(`${r.judgeId}:`)) delete evaluations[k]
+  Object.assign(evaluations, r.evaluations)
+  const who = r.judgeId ? `${data.judges.find((j) => j.id === r.judgeId)?.name ?? r.judgeId} 위원` : '전체 위원'
+  return logSystem(
+    { ...data, evaluations, tieDecisions: { ...r.tieDecisions, ...data.tieDecisions }, lastReset: null },
+    `${who} 점수 초기화 복구 (평가 ${Object.keys(r.evaluations).length}건 되살림, 초기화 시각 ${new Date(r.at).toLocaleString('ko-KR')})`,
+  )
 }

@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useApp } from '../components/ctx'
 import ScoreInput from '../components/ScoreInput'
-import { Button, Card, Notice } from '../components/ui'
+import { Button, Card, Notice, kst } from '../components/ui'
 import { categoriesOf, evalKey, fmtScore, summarizeEvaluation } from '../lib/calc'
-import { clearScores, resetEvaluation, setItemScore } from '../lib/store'
+import { clearScores, enteredSinceReset, resetEvaluation, restoreLastReset, setItemScore } from '../lib/store'
 import type { AppData } from '../lib/types'
 
 function statusText(data: AppData, judgeId: string, no: number) {
@@ -75,6 +75,29 @@ function ResetButtons({ judgeId }: { judgeId: string }) {
         if (data.dataMode === 'real' && prompt("실제 심사 점수를 모두 지우려면 '초기화'를 입력하세요") !== '초기화') { notify('초기화를 취소했습니다'); return }
         if (update((d) => clearScores(d))) notify('전체 점수를 초기화했습니다')
       }}>전체 점수 초기화</Button>
+      <RestoreButton />
+    </div>
+  )
+}
+
+/** 직전 점수 초기화(위원별·전체) 되돌리기. 보관본은 저장되므로 새로고침 후에도 복구할 수 있다. */
+function RestoreButton() {
+  const { data, update, notify } = useApp()
+  const r = data.lastReset
+  if (!r) return null
+  const n = Object.keys(r.evaluations).length
+  const who = r.judgeId ? `${data.judges.find((j) => j.id === r.judgeId)?.name ?? ''} 위원` : '전체'
+  return (
+    <div className="flex w-full flex-wrap items-center gap-2 rounded border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm">
+      <span>직전 초기화: <b>{who} 점수 {n}건</b> ({kst(r.at)})</span>
+      <Button variant="primary" className="ml-auto" disabled={!!data.finalized} onClick={() => {
+        const since = enteredSinceReset(data)
+        const msg = `${who} 점수 ${n}건을 초기화 직전 상태로 되살립니다.` +
+          (since ? `\n\n주의: 초기화 이후 ${who === '전체' ? '' : who + '에게 '}새로 입력한 평가 ${since}건은 초기화 직전 점수로 바뀝니다.` : '') +
+          '\n계속할까요?'
+        if (!confirm(msg)) return
+        if (update(restoreLastReset)) notify(`${who} 점수 ${n}건을 복구했습니다`)
+      }}>복구</Button>
     </div>
   )
 }
