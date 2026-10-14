@@ -28,6 +28,7 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('dashboard')
   const [toast, setToast] = useState<{ msg: string; kind: 'ok' | 'error' } | null>(null)
   const [saveOk, setSaveOk] = useState(true)
+  const [savedAt, setSavedAt] = useState<Date | null>(null)
   const [printDoc, setPrintDoc] = useState<PrintDoc | null>(null)
 
   const notify = useCallback((msg: string, kind: 'ok' | 'error' = 'ok') => setToast({ msg, kind }), [])
@@ -37,25 +38,30 @@ export default function App() {
     return () => clearTimeout(t)
   }, [toast])
 
-  // 변경 즉시 자동 저장
-  useEffect(() => { setSaveOk(saveData(data)) }, [data])
+  /** 변경 즉시 브라우저 저장소에 기록(화면 갱신을 기다리지 않음) */
+  const persist = useCallback((d: AppData) => {
+    const ok = saveData(d)
+    setSaveOk(ok)
+    if (ok) setSavedAt(new Date())
+  }, [])
 
   const update = useCallback((fn: (d: AppData) => AppData) => {
     try {
       const next = fn(dataRef.current)
-      if (next !== dataRef.current) { dataRef.current = next; setData(next) }
+      if (next !== dataRef.current) { dataRef.current = next; persist(next); setData(next) }
       return true
     } catch (e) {
       notify((e as Error).message, 'error')
       return false
     }
-  }, [notify])
+  }, [notify, persist])
 
   const replace = useCallback((d: AppData) => {
     dataRef.current = d
+    persist(d)
     setData(d)
     saveActiveMode(d.dataMode)
-  }, [])
+  }, [persist])
 
   const print = useCallback((doc: PrintDoc) => setPrintDoc(doc), [])
   useEffect(() => {
@@ -92,7 +98,8 @@ export default function App() {
                 ? <span className="rounded bg-emerald-600 px-2 py-1 font-bold">결과 확정됨</span>
                 : <span className="rounded bg-navy-600 px-2 py-1">미확정</span>}
               <span className={`rounded px-2 py-1 ${saveOk ? 'bg-navy-800 text-navy-100' : 'bg-red-600 font-bold'}`}>
-                {saveOk ? '자동 저장됨' : '저장 실패 — 백업 파일을 즉시 내려받으세요'}
+                {!saveOk ? '저장 실패 — 백업 파일을 즉시 내려받으세요'
+                  : savedAt ? `자동 저장됨 ${[savedAt.getHours(), savedAt.getMinutes(), savedAt.getSeconds()].map((n) => String(n).padStart(2, '0')).join(':')}` : '자동 저장 켜짐'}
               </span>
             </div>
           </div>

@@ -67,6 +67,25 @@ function withAudit(data: AppData, entries: Omit<AuditEntry, 'at'>[]): AuditEntry
   return [...data.audit, ...entries.map((e) => ({ ...e, at }))]
 }
 
+/** 같은 칸을 이어서 입력한 것으로 보고 이력을 1건으로 묶는 시간 */
+const COALESCE_MS = 30_000
+
+/**
+ * 점수 변경 이력 추가. 바로 앞 이력이 같은 위원·제안·항목이고 30초 이내면
+ * (한 칸에 숫자를 이어서 누른 경우) 새 줄을 만들지 않고 ‘변경 후’ 값만 갱신한다.
+ * 결과적으로 값이 원래대로 돌아오면 그 이력은 지운다.
+ */
+function withScoreAudit(data: AppData, e: Omit<AuditEntry, 'at'>): AuditEntry[] {
+  const at = nowIso()
+  const last = data.audit[data.audit.length - 1]
+  if (last && last.judgeId === e.judgeId && last.proposalNo === e.proposalNo && last.field === e.field &&
+      last.note === e.note && Date.now() - Date.parse(last.at) < COALESCE_MS) {
+    const rest = data.audit.slice(0, -1)
+    return last.before === e.after ? rest : [...rest, { ...last, after: e.after, at }]
+  }
+  return [...data.audit, { ...e, at }]
+}
+
 function emptyEval(mode: EntryMode): Evaluation {
   return { mode, items: {}, total: null, updatedAt: nowIso() }
 }
@@ -82,7 +101,7 @@ export function setItemScore(data: AppData, judgeId: string, no: number, criteri
   return {
     ...data,
     evaluations: { ...data.evaluations, [key]: ev },
-    audit: withAudit(data, [{ judgeId, proposalNo: no, field: criterionId, before, after: value }]),
+    audit: withScoreAudit(data, { judgeId, proposalNo: no, field: criterionId, before, after: value }),
   }
 }
 
@@ -100,7 +119,7 @@ export function setTotalScore(data: AppData, judgeId: string, no: number, value:
   return {
     ...data,
     evaluations,
-    audit: withAudit(data, [{ judgeId, proposalNo: no, field: 'total', before, after: value, note: '총점 직접입력' }]),
+    audit: withScoreAudit(data, { judgeId, proposalNo: no, field: 'total', before, after: value, note: '총점 직접입력' }),
   }
 }
 

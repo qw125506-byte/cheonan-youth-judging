@@ -174,6 +174,30 @@ describe('순위·동점', () => {
   })
 })
 
+describe('입력 즉시 저장', () => {
+  it('한 칸에 이어서 누른 숫자(1→10)는 이력 1건으로 묶인다', () => {
+    let x = setItemScore(createInitialData('test'), 'j1', 1, 'c1', 1)
+    x = setItemScore(x, 'j1', 1, 'c1', 10)
+    expect(x.audit).toHaveLength(1)
+    expect([x.audit[0].before, x.audit[0].after]).toEqual([null, 10])
+    expect(x.evaluations['j1:1'].items.c1).toBe(10)
+  })
+  it('다른 칸을 입력한 뒤 돌아와 고치면 별도 이력', () => {
+    let x = setItemScore(createInitialData('test'), 'j1', 1, 'c1', 5)
+    x = setItemScore(x, 'j1', 1, 'c2', 6)
+    x = setItemScore(x, 'j1', 1, 'c1', 7)
+    expect(x.audit).toHaveLength(3)
+    expect([x.audit[2].before, x.audit[2].after]).toEqual([5, 7])
+  })
+  it('지웠다가 원래 값으로 다시 쓰면 이력이 남지 않는다', () => {
+    let x = setItemScore(createInitialData('test'), 'j1', 1, 'c1', 5)
+    x.audit[0].at = new Date(Date.now() - 60_000).toISOString()
+    x = setItemScore(x, 'j1', 1, 'c1', null)
+    x = setItemScore(x, 'j1', 1, 'c1', 5)
+    expect(x.audit).toHaveLength(1)
+  })
+})
+
 describe('전체 시나리오(연습 데이터 84건)', () => {
   const d = fillTestScores(createInitialData('test'))
   const r = computeResults(d)
@@ -199,6 +223,7 @@ describe('전체 시나리오(연습 데이터 84건)', () => {
   })
   it('수정 이력에 변경 전후 값이 남는다', () => {
     let x = setItemScore(createInitialData('test'), 'j1', 1, 'c1', 5)
+    x.audit[0].at = new Date(Date.now() - 60_000).toISOString() // 1분 전에 입력한 것으로
     x = setItemScore(x, 'j1', 1, 'c1', 7)
     const last = x.audit[x.audit.length - 1]
     expect([last.before, last.after]).toEqual([5, 7])

@@ -30,21 +30,46 @@ function moveFocus(grid: string, row: number, col: number, dir: 'down' | 'up' | 
 }
 
 /**
- * 점수 입력칸. 입력 중에는 로컬 문자열을 유지하고 Enter·Tab·포커스 이동 시 확정한다.
+ * 점수 입력칸. 숫자를 누르는 즉시 자동 저장된다. Esc는 이 칸에 들어오기 전 값으로 되돌린다.
  * 잘못된 값(문자·음수·배점 초과·허용되지 않은 소수점)은 저장하지 않고 빨간 테두리와 사유를 보여준다.
  */
 export default function ScoreInput({ value, max, allowDecimal, disabled, grid, row, col, onCommit, enterAxis = 'down', className = '', title }: Props) {
   const [text, setText] = useState(fmtScore(value))
   const [error, setError] = useState<string | null>(null)
   const focused = useRef(false)
+  /** 포커스 시점의 값(Esc로 되돌리기용) */
+  const atFocus = useRef<number | null>(value)
+  /** 마지막으로 저장한 값(같은 값 반복 저장 방지) */
+  const saved = useRef<number | null>(value)
 
-  useEffect(() => { if (!focused.current) { setText(fmtScore(value)); setError(null) } }, [value])
+  useEffect(() => {
+    saved.current = value
+    if (!focused.current) { setText(fmtScore(value)); setError(null) }
+  }, [value])
+
+  function save(v: number | null) {
+    if (v !== saved.current) { saved.current = v; onCommit(v) }
+  }
+
+  /**
+   * 입력하는 즉시 저장한다. 올바른 값이면 그 값을, 잘못된 값(문자·배점 초과 등)이면
+   * 앞서 저장된 일부 숫자가 남지 않도록 미입력(null)으로 저장하고 오류를 표시한다.
+   * 소수점 입력 중간("7.")은 아직 판단하지 않는다.
+   */
+  function onType(t: string) {
+    setText(t)
+    const r = parseScore(t, max, allowDecimal)
+    if (r.ok) { setError(null); save(r.value); return }
+    if (allowDecimal && /^\d+\.$/.test(t.trim())) { setError(null); return }
+    setError(r.error)
+    save(null)
+  }
 
   function commit(): boolean {
     const r = parseScore(text, max, allowDecimal)
-    if (!r.ok) { setError(r.error); return false }
+    if (!r.ok) { setError(r.error); save(null); return false }
     setError(null)
-    if (r.value !== value) onCommit(r.value)
+    save(r.value)
     setText(fmtScore(r.value))
     return true
   }
@@ -65,9 +90,9 @@ export default function ScoreInput({ value, max, allowDecimal, disabled, grid, r
         aria-invalid={!!error}
         title={error ?? title ?? `0 ~ ${max}점`}
         placeholder="-"
-        onFocus={(e) => { focused.current = true; e.target.select() }}
+        onFocus={(e) => { focused.current = true; atFocus.current = value; e.target.select() }}
         onBlur={() => { focused.current = false; commit() }}
-        onChange={(e) => { setText(e.target.value); if (error) setError(null) }}
+        onChange={(e) => onType(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
             e.preventDefault()
@@ -79,7 +104,7 @@ export default function ScoreInput({ value, max, allowDecimal, disabled, grid, r
             e.preventDefault()
             if (commit()) moveFocus(grid, row, col, 'up')
           } else if (e.key === 'Escape') {
-            setText(fmtScore(value)); setError(null)
+            setText(fmtScore(atFocus.current)); setError(null); save(atFocus.current)
           }
         }}
       />

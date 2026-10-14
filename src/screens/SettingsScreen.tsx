@@ -1,17 +1,40 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useApp } from '../components/ctx'
 import { Button, Card, Notice, kst } from '../components/ui'
 import { loadData, logSystem, saveActiveMode, saveData } from '../lib/store'
 import { fillTestScores } from '../lib/testData'
 import type { AppData } from '../lib/types'
 
-/** 포커스를 벗어날 때 저장하는 글 입력칸 */
-function TextField({ value, onSave, disabled, className = '' }: { value: string; onSave: (v: string) => void; disabled?: boolean; className?: string }) {
+/**
+ * 글자를 입력하는 즉시 저장하는 입력칸. 이력은 칸을 벗어날 때 ‘변경 전 → 변경 후’로 1건만 남긴다.
+ * 빈칸으로는 저장하지 않는다.
+ */
+function TextField({ value, apply, note, disabled, className = '' }: {
+  value: string
+  apply: (d: AppData, v: string) => AppData
+  note: (before: string, after: string) => string
+  disabled?: boolean
+  className?: string
+}) {
+  const { update } = useApp()
   const [v, setV] = useState(value)
-  useEffect(() => setV(value), [value])
+  const before = useRef(value)
+  const focused = useRef(false)
+  useEffect(() => { if (!focused.current) setV(value) }, [value])
   return (
-    <input value={v} disabled={disabled} onChange={(e) => setV(e.target.value)}
-      onBlur={() => { const t = v.trim(); if (t && t !== value) onSave(t); else setV(value) }}
+    <input value={v} disabled={disabled}
+      onFocus={() => { focused.current = true; before.current = value }}
+      onChange={(e) => {
+        setV(e.target.value)
+        const t = e.target.value.trim()
+        if (t) update((d) => apply(d, t))
+      }}
+      onBlur={() => {
+        focused.current = false
+        const t = v.trim()
+        if (!t) { setV(value); return }
+        if (t !== before.current) update((d) => logSystem(d, note(before.current, t)))
+      }}
       className={`w-full rounded border border-gray-300 px-2 py-1 text-sm disabled:bg-gray-100 ${className}`} />
   )
 }
@@ -70,8 +93,8 @@ export default function SettingsScreen() {
           {data.judges.map((j, i) => (
             <div key={j.id} className="grid grid-cols-[60px_1fr_160px] items-center gap-2">
               <span className="text-sm font-semibold">위원{i + 1}</span>
-              <TextField value={j.affiliation} disabled={locked} onSave={(v) => edit((d) => ({ ...d, judges: d.judges.map((x) => x.id === j.id ? { ...x, affiliation: v } : x) }), `위원${i + 1} 소속 변경: ${j.affiliation} → ${v}`)} />
-              <TextField value={j.name} disabled={locked} onSave={(v) => edit((d) => ({ ...d, judges: d.judges.map((x) => x.id === j.id ? { ...x, name: v } : x) }), `위원${i + 1} 성명 변경: ${j.name} → ${v}`)} />
+              <TextField value={j.affiliation} disabled={locked} apply={(d, v) => ({ ...d, judges: d.judges.map((x) => x.id === j.id ? { ...x, affiliation: v } : x) })} note={(b, a) => `위원${i + 1} 소속 변경: ${b} → ${a}`} />
+              <TextField value={j.name} disabled={locked} apply={(d, v) => ({ ...d, judges: d.judges.map((x) => x.id === j.id ? { ...x, name: v } : x) })} note={(b, a) => `위원${i + 1} 성명 변경: ${b} → ${a}`} />
             </div>
           ))}
         </div>
@@ -82,9 +105,9 @@ export default function SettingsScreen() {
           {data.proposals.map((p) => (
             <div key={p.no} className="grid grid-cols-[32px_1fr] gap-2 border-b border-gray-100 pb-2 lg:grid-cols-[32px_2fr_2fr_120px]">
               <span className="num pt-1 font-bold text-navy-700">{p.no}</span>
-              <TextField value={p.title} disabled={locked} onSave={(v) => edit((d) => ({ ...d, proposals: d.proposals.map((x) => x.no === p.no ? { ...x, title: v } : x) }), `제안${p.no} 제안명 변경`)} />
-              <TextField value={p.summary} disabled={locked} className="text-gray-600" onSave={(v) => edit((d) => ({ ...d, proposals: d.proposals.map((x) => x.no === p.no ? { ...x, summary: v } : x) }), `제안${p.no} 제안내용 변경`)} />
-              <TextField value={p.dept} disabled={locked} onSave={(v) => edit((d) => ({ ...d, proposals: d.proposals.map((x) => x.no === p.no ? { ...x, dept: v } : x) }), `제안${p.no} 검토부서 변경`)} />
+              <TextField value={p.title} disabled={locked} apply={(d, v) => ({ ...d, proposals: d.proposals.map((x) => x.no === p.no ? { ...x, title: v } : x) })} note={(b, a) => `제안${p.no} 제안명 변경: ${b} → ${a}`} />
+              <TextField value={p.summary} disabled={locked} className="text-gray-600" apply={(d, v) => ({ ...d, proposals: d.proposals.map((x) => x.no === p.no ? { ...x, summary: v } : x) })} note={(b, a) => `제안${p.no} 제안내용 변경: ${b} → ${a}`} />
+              <TextField value={p.dept} disabled={locked} apply={(d, v) => ({ ...d, proposals: d.proposals.map((x) => x.no === p.no ? { ...x, dept: v } : x) })} note={(b, a) => `제안${p.no} 검토부서 변경: ${b} → ${a}`} />
             </div>
           ))}
         </div>
@@ -97,7 +120,7 @@ export default function SettingsScreen() {
               <tr key={c.id}>
                 <td className="w-32 border border-gray-200 px-2 py-1 font-semibold">{c.category}</td>
                 <td className="border border-gray-200 px-1 py-1">
-                  <TextField value={c.label} disabled={locked} onSave={(v) => edit((d) => ({ ...d, criteria: d.criteria.map((x) => x.id === c.id ? { ...x, label: v } : x) }), `심사요소 문구 변경: ${c.label} → ${v}`)} />
+                  <TextField value={c.label} disabled={locked} apply={(d, v) => ({ ...d, criteria: d.criteria.map((x) => x.id === c.id ? { ...x, label: v } : x) })} note={(b, a) => `심사요소 문구 변경: ${b} → ${a}`} />
                 </td>
                 <td className="num w-16 border border-gray-200 text-center">{c.max}점</td>
               </tr>
