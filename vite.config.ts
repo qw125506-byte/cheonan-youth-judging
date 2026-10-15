@@ -9,6 +9,8 @@ export default defineConfig(({ mode }) => {
   const single = mode === 'single'
   return {
     base: './',
+    // 심사의결서 원본 한글 양식을 ?inline 으로 묶어 넣는다
+    assetsInclude: ['**/*.hwpx'],
     plugins: [react(), tailwindcss(), ...(single ? [viteSingleFile()] : [])],
     build: { chunkSizeWarningLimit: 1500, ...(single ? { outDir: 'dist-single' } : {}) },
     test: { environment: 'node' },

@@ -5,6 +5,7 @@ import { downloadCsv, downloadJson, downloadXlsx } from '../lib/exporters'
 import { logSystem, validateBackup } from '../lib/store'
 import { createInitialData } from '../lib/initialData'
 import type { AppData } from '../lib/types'
+import UigyeolCard from '../components/UigyeolCard'
 
 export default function OutputScreen() {
   const { data, results, print, replace, notify } = useApp()
@@ -31,6 +32,8 @@ export default function OutputScreen() {
   return (
     <div className="space-y-4">
       {!results.allComplete && <Notice kind="warn">평가 입력이 끝나지 않았습니다. 지금 출력하는 집계·결과는 잠정 결과로 표시됩니다.</Notice>}
+      <UigyeolCard />
+
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title="인쇄 · PDF 저장">
           <p className="mb-3 text-sm text-gray-600">인쇄 창에서 대상 프린터를 <b>‘PDF로 저장’</b>으로 고르면 PDF 파일이 됩니다. 한글은 시스템 글꼴(맑은 고딕)로 출력되어 깨지지 않습니다.</p>

@@ -12,6 +12,7 @@
     "deploy": "npm test && npm run build && gh-pages -d dist -m \"배포\""
   },
   "dependencies": {
+    "fflate": "^0.8.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"

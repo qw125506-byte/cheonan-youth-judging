@@ -98,4 +98,6 @@ export interface AppData {
   finalized: Finalization | null
   /** 직전 점수 초기화 복구용 보관본 */
   lastReset?: ResetSnapshot | null
+  /** 심사위원장(당일 호선). 심사의결서 위원장 칸에 쓴다 */
+  chairJudgeId?: string | null
 }

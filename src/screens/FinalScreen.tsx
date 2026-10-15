@@ -25,6 +25,7 @@ export default function FinalScreen() {
       {results.unresolvedTies.length > 0 && (
         <Notice kind="warn">수상 등급 경계에 동점이 있어 자동으로 수상자를 확정하지 않습니다. 아래 「동점 처리」에서 위원회 결정 결과와 사유를 기록하세요.</Notice>
       )}
+      {data.finalized && <Notice kind="ok">심사결과가 확정되었습니다. 「⑤ 출력·백업 → ⑥ 심사의결서」에서 위원장을 선택하고 최종 결과보고(한글 .hwpx)를 내려받으세요.</Notice>}
       {drift && <Notice kind="error">확정 당시 결과와 현재 계산이 다릅니다. 확정 이후 데이터가 변경되었는지 수정 이력을 확인하세요.</Notice>}
 
       <TiePanel />
