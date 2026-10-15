@@ -3,7 +3,6 @@ import { useApp } from './ctx'
 import { Button, Card, Notice } from './ui'
 import { buildFill, buildUigyeolHwpx, uigyeolBlockers } from '../lib/hwpx'
 import { downloadBlob, fileStamp } from '../lib/exporters'
-import { fmt2 } from '../lib/calc'
 import { logSystem } from '../lib/store'
 
 function templateBytes(): Uint8Array {
@@ -32,8 +31,8 @@ export default function UigyeolCard() {
   return (
     <Card title="⑥ 최종 결과보고 — 심사의결서 (한글 .hwpx)">
       <p className="mb-3 text-sm text-gray-600">
-        「제안심사위원회 심사의결서」 원본 양식에 심사일시·참석 인원·1~6위 제안명과 평균 총점·위원 성명을 채운 한글 파일을 만듭니다.
-        양식(글꼴·표·테두리)은 그대로이며, 서명란은 비워 둡니다. 한글에서 열어 바로 인쇄하세요.
+        「제안심사위원회 심사의결서」 원본 양식에 심사일시·참석 인원·선정 6건(최우수·우수·장려 줄)·위원 성명을 채운 한글 파일을 만듭니다.
+        양식(글꼴·표·밑줄)은 그대로이며 서명란은 비워 둡니다. 제안명이 길면 6줄을 같은 크기로 줄여 항상 1쪽에 맞춥니다. 한글에서 열어 바로 인쇄하세요.
       </p>
       <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
         <label htmlFor="chair" className="font-semibold">위원장(당일 호선)</label>
@@ -54,27 +53,16 @@ export default function UigyeolCard() {
         <Notice kind="warn">아직 만들 수 없습니다 — {blockers.join(' / ')}</Notice>
       ) : (
         <div className="mb-3 overflow-x-auto">
-          <table className="w-full min-w-[480px] border-collapse text-sm">
-            <thead><tr className="bg-navy-50 text-navy-900">
-              <th className="border border-gray-300 px-2 py-1">순위</th><th className="border border-gray-300 px-2">구분</th>
-              <th className="border border-gray-300 px-2">제안 사업명</th><th className="border border-gray-300 px-2">평균 총점</th>
-              <th className="border border-gray-300 px-2">비고</th>
-            </tr></thead>
-            <tbody>
-              {fill!.winners.map(([title, avg, note], i) => (
-                <tr key={i}>
-                  <td className="num border border-gray-300 text-center">{i + 1}</td>
-                  <td className="border border-gray-300 text-center">{['최우수', '우수', '우수', '장려', '장려', '장려'][i]}</td>
-                  <td className="border border-gray-300 px-2">{title}</td>
-                  <td className="num border border-gray-300 text-center">{avg}</td>
-                  <td className="border border-gray-300 px-2 text-center text-xs">{note}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="rounded border border-gray-300 bg-white px-4 py-3 text-sm leading-7">
+            <div className="mb-1 text-xs text-gray-500">의결서에 들어갈 선정 내용 미리보기</div>
+            {fill!.winners.map((title, i) => (
+              <div key={i} className="underline decoration-gray-400 underline-offset-4">
+                <span className="font-semibold">{['(최 우 수)', '(우 수)', '(우 수)', '(장 려)', '(장 려)', '(장 려)'][i]}</span> {title}
+              </div>
+            ))}
+          </div>
           <p className="mt-1 text-xs text-gray-500">
             의결: 위원장 {fill!.names[0] ?? '(미정 — 비워 둠)'}{fill!.names.length ? ` / 위원 ${fill!.names.slice(1).join(', ')}` : ''} · 참석 {fill!.attendees}명 · 심사 {fill!.count}건
-            {results.rows[0]?.agg.avg !== null && ` · 1위 평균 ${fmt2(results.rows[0].agg.avg)}`}
           </p>
         </div>
       )}
